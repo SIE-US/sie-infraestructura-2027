@@ -1,0 +1,242 @@
+services:
+
+  # =========================
+  # ERP: Odoo
+  # =========================
+  odoo:
+    image: odoo:18.0
+    ports:
+      - "8069:8069"
+    environment:
+      HOST: db_odoo
+      USER: ${ODOO_USER}
+      PASSWORD: ${ODOO_PASSWORD}
+    volumes:
+      - ./odoo/addons:/mnt/extra-addons
+      - ./odoo/config:/etc/odoo
+      - odoo-web-data:/var/lib/odoo
+    depends_on:
+      db_odoo:
+        condition: service_healthy
+    networks:
+      - sie-network
+    restart: unless-stopped
+
+  # =========================
+  # BD de Odoo: POstgreSQL
+  # =========================
+  db_odoo:
+    image: postgres:16.4
+    environment:
+      POSTGRES_DB: postgres
+      POSTGRES_PASSWORD: ${ODOO_POSTGRES_PASSWORD}
+      POSTGRES_USER: ${ODOO_POSTGRES_USER}
+    volumes:
+      - odoo-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL","pg_isready -U ${ODOO_POSTGRES_USER}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - sie-network
+    restart: unless-stopped
+
+  # =========================
+  # CRM: SuiteCRM
+  # =========================
+  suitecrm:
+    build:
+      context: ./suitecrm
+      dockerfile: Dockerfile
+    ports:
+      - "8080:80"
+    environment:
+      DATABASE_HOST: db_suitecrm
+      DATABASE_NAME: ${SUITECRM_DATABASE_NAME}
+      DATABASE_USER: ${SUITECRM_DATABASE_USER}
+      DATABASE_PASSWORD: ${SUITECRM_DATABASE_PASSWORD}
+    volumes:
+      - ./suitecrm/upload:/var/www/html/public/legacy/upload
+    depends_on:
+      db_suitecrm:
+        condition: service_healthy
+    networks:
+      - sie-network
+    restart: unless-stopped
+
+  # =========================
+  # BD de SuiteCRM: MariaDB
+  # =========================
+  db_suitecrm:
+    image: mariadb:10.11
+    environment:
+      MARIADB_DATABASE: ${SUITECRM_MARIADB_DATABASE}
+      MARIADB_USER: ${SUITECRM_MARIADB_USER}
+      MARIADB_PASSWORD: ${SUITECRM_MARIADB_PASSWORD}
+      MARIADB_ROOT_PASSWORD: ${SUITECRM_MARIADB_ROOT_PASSWORD}
+    volumes:
+      - suitecrm-db-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD","healthcheck.sh","--connect","--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - sie-network
+    restart: unless-stopped
+
+  # =========================
+  # BPM: Bonita Runtime
+  # =========================
+  bonita:
+    image: bonita:2026.2
+    ports:
+      - "8081:8080"
+    environment:
+      DB_VENDOR: postgres
+      DB_HOST: db_bonita
+      DB_PORT: ${BONITA_DB_PORT}
+      DB_NAME: ${BONITA_DB_NAME}
+      DB_USER: ${BONITA_DB_USER}
+      DB_PASS: ${BONITA_DB_PASS}
+      BIZ_DB_NAME: ${BONITA_BIZ_DB_NAME}
+      BIZ_DB_USER: ${BONITA_BIZ_DB_USER}
+      BIZ_DB_PASS: ${BONITA_BIZ_DB_PASS}
+    volumes:
+      - bonita-data:/opt/bonita
+    depends_on:
+      db_bonita:
+        condition: service_healthy
+    networks:
+      - sie-network
+    restart: unless-stopped
+
+  # =========================
+  # BD de Bonita: PostgreSQL
+  # =========================
+  db_bonita:
+    image: bonitasoft/bonita-postgres:16.4
+    environment:
+      POSTGRES_PASSWORD: ${BONITA_POSTGRES_PASSWORD}
+    volumes:
+      - bonita-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL","pg_isready"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - sie-network
+    restart: unless-stopped
+
+  # =========================
+  # Automatización: n8n
+  # =========================
+  n8n:
+    image: n8nio/n8n:1.74.1
+    ports:
+      - "5678:5678"
+    volumes:
+      - n8n-data:/home/node/.n8n
+    networks:
+      - sie-network
+    restart: unless-stopped
+
+  # =========================
+  # Email Server (fake): smtp4dev
+  # =========================
+  smtp4dev:
+    image: rnwood/smtp4dev:3.6.1
+    ports:
+      - "3000:80"     # Panel Web para ver correos
+      - "2525:25"     # Puerto SMTP para herramientas externas (p.e. Bonita Studio)
+    volumes:
+      - smtp4dev-data:/smtp4dev
+    networks:
+      - sie-network
+    restart: unless-stopped
+
+  # =========================
+  # Gestión BD PostgreSQL (Odoo y Bonita): pgAdmin 4
+  # =========================
+  pgadmin:
+    image: dpage/pgadmin4:8.10
+    ports:
+      - "5050:80"
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_DEFAULT_EMAIL}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_DEFAULT_PASSWORD}
+    volumes:
+      - pgadmin-data:/var/lib/pgadmin
+    networks:
+      - sie-network
+    restart: unless-stopped
+
+  # =========================
+  # Gestión BD MariaDB (SuiteCRM): phpMyAdmin
+  # =========================
+  phpmyadmin:
+    image: phpmyadmin/phpmyadmin:5.2.1
+    ports:
+      - "8088:80"
+    environment:
+      PMA_HOST: db_suitecrm
+      PMA_PORT: ${PHPMYADMIN_PMA_PORT}
+      UPLOAD_LIMIT: ${PHPMYADMIN_UPLOAD_LIMIT}
+    networks:
+      - sie-network
+    restart: unless-stopped
+  
+  # =========================
+  # Modelos IA: Ollama
+  # =========================
+  ollama:
+    image: ollama/ollama:0.30.10
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    networks:
+      - sie-network
+    restart: unless-stopped
+
+  # =========================
+  # Gestión API: Python-FastAPI
+  # =========================
+  fastapi:
+    build:
+      context: ./fastapi
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    working_dir: /app
+    volumes:
+      - ./fastapi:/app
+    depends_on:
+      odoo:
+        condition: service_started
+      suitecrm:
+        condition: service_started
+      bonita:
+        condition: service_started
+      ollama:
+        condition: service_started
+    networks:
+      - sie-network
+    restart: unless-stopped
+
+volumes:
+  odoo-web-data:
+  odoo-db-data:
+  suitecrm-db-data:
+  bonita-data:
+  bonita-db-data:
+  n8n-data:
+  smtp4dev-data:
+  pgadmin-data:
+  ollama_data:
+
+networks:
+  sie-network:
+    driver: bridge

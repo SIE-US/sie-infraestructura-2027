@@ -1,0 +1,3 @@
+# Añade aquí los archivos o directorios que deseas ignorar en el control de versiones de Git
+.DS_Store
+Thumbs.db
