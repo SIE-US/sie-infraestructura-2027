@@ -7,7 +7,7 @@ Info: http://localhost:8000/docs y http://localhost:8000/redoc
 
 # Librerías estándar.
 import os
-from typing import Any
+from typing import Any, Literal
 
 # FastAPI para exponer endpoints HTTP y respuestas de error.
 from fastapi import FastAPI, HTTPException, status
@@ -15,23 +15,34 @@ from fastapi import FastAPI, HTTPException, status
 # Pydantic valida automáticamente los datos de entrada.
 from pydantic import BaseModel, Field
 
-# requests se usa aquí porque es simple para una primera versión.
+# requests es simple y permite hacer peticiones (p.e. a Ollama).
 import requests
 
+# Para conectarse a Odoo vía XML-RPC.
+import xmlrpc.client
+
+# Para conectarse a Odoo vía JSON-2-RPC (Odoo 19 introduce esta nueva opción).
+import httpx
+
 # ---------------------------------------------------------------------------
-# 1) Configuración básica (URLs de servicios)
+# Configuración 
 # ---------------------------------------------------------------------------
 # Se leen desde variables de entorno para que docker-compose pueda cambiarlas
-# sin tocar el código. Si no existen, se usan valores por defecto del entorno docente.
+# sin tocar el código. Si no existen, se usan valores por defecto.
 ODOO_URL = os.getenv("ODOO_URL", "http://odoo:8069")
 SUITECRM_URL = os.getenv("SUITECRM_URL", "http://suitecrm/public")
 BONITA_URL = os.getenv("BONITA_URL", "http://bonita:8080")
 N8N_URL = os.getenv("N8N_URL", "http://n8n:5678")
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://ollama:11434")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.2")
+ODOO_DB = os.getenv("ODOO_DB", "SIE-test")
+ODOO_API_USER = os.getenv("ODOO_API_USER", "fastapi@sie-test.es")
+ODOO_API_PASSWORD = os.getenv("ODOO_API_PASSWORD", "fastapi")
+ODOO_API_KEY = os.getenv("ODOO_API_KEY", "98bccfeeb643771eec9f8b320427cc4192a7da9c")
+
 
 # ---------------------------------------------------------------------------
-# 2) Inicialización de la aplicación FastAPI
+# Inicialización de la aplicación FastAPI
 # ---------------------------------------------------------------------------
 app = FastAPI(
     title="SIE Integration API",
@@ -41,22 +52,64 @@ app = FastAPI(
 
 
 # ---------------------------------------------------------------------------
-# 3) Modelos de entrada (request body)
+# Modelos de entrada (request body)
 # ---------------------------------------------------------------------------
+class Contacto(BaseModel):
+    # Campos de un contacto de Odoo que se devolverán en la API.
+    id: int
+    nombre: str
+    email: str | None
+    telefono: str | None
+    ciudad: str | None
+
 class Prompt(BaseModel):
     # Texto que se enviará al modelo de IA.
     prompt: str = Field(..., min_length=1, max_length=4000)
 
 
-class Pedido(BaseModel):
-    # Ejemplo de estructura de pedido para practicar validación y JSON.
-    cliente: str = Field(..., min_length=1, max_length=100)
-    producto: str = Field(..., min_length=1, max_length=100)
-    cantidad: int = Field(..., gt=0)
+# ---------------------------------------------------------------------------
+# Funciones auxiliares para Odoo
+# ---------------------------------------------------------------------------
+def conectar_odoo():
+    """
+    Establece la conexión con Odoo.
+
+    Devuelve:
+        uid: identificador del usuario autenticado.
+        models: objeto que permite acceder a los modelos de Odoo.
+
+    Lanza una excepción HTTP si no consigue autenticarse.
+    """
+
+    # Servicio de autenticación
+    common = xmlrpc.client.ServerProxy(
+        f"{ODOO_URL}/xmlrpc/2/common"
+    )
+
+    # Autenticación
+    uid = common.authenticate(
+        ODOO_DB,
+        ODOO_API_USER,
+        ODOO_API_PASSWORD,
+        {}
+    )
+
+    if not uid:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="No se pudo autenticar con Odoo."
+        )
+
+    # Servicio que permite acceder a los modelos (res.partner, sale.order...)
+    models = xmlrpc.client.ServerProxy(
+        f"{ODOO_URL}/xmlrpc/2/object"
+    )
+
+    return uid, models
 
 
 # ---------------------------------------------------------------------------
-# 4) Endpoints básicos para empezar
+# Endpoints básicos para empezar
 # ---------------------------------------------------------------------------
 @app.get("/")
 def root() -> dict[str, str]:
@@ -82,11 +135,161 @@ def servicios() -> dict[str, str]:
 
 
 # ---------------------------------------------------------------------------
-# 5) Endpoints de Ollama (primeros pasos)
+# Endpoints de Odoo
+# ---------------------------------------------------------------------------
+@app.get("/odoo/contactos", response_model=list[Contacto])
+def obtener_contactos(tipo: Literal["todos", "clientes", "proveedores"] = "todos"):
+    """
+    Recupera los contactos de Odoo.
+
+    Parámetros:
+    tipo:
+        - todos (por defecto)
+        - clientes
+        - proveedores
+
+    Solo devuelve algunos campos para simplificar el ejemplo.
+    """
+    uid, models = conectar_odoo()
+
+    # Dominio de búsqueda según el tipo solicitado
+    dominio = []
+    if tipo == "clientes":
+        dominio = [["customer_rank", ">", 0]]
+    elif tipo == "proveedores":
+        dominio = [["supplier_rank", ">", 0]]
+
+    try:
+        contactos = models.execute_kw(
+            ODOO_DB,
+            uid,
+            ODOO_API_PASSWORD,
+            "res.partner",
+            "search_read",
+            [dominio],
+            {
+                "fields": [
+                    "id",
+                    "name",
+                    "email",
+                    "phone",
+                    "city",
+                ],
+                "order": "name",
+            },
+        )
+
+    # Odoo respondió, pero con error (p.e. permisos insuficientes o un modelo inexistente)
+    except xmlrpc.client.Fault as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Odoo devolvió un error: {exc}",
+        )
+
+    # No se pudo conectar con Odoo (p.e. servicio caído o URL incorrecta)
+    except OSError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"No se pudo conectar con Odoo: {exc}",
+        )
+
+    resultado = []
+
+    # Se transforma la lista de contactos en un formato más sencillo para la API.
+    # Aquí vemos que FastAPI no es un mero proxy de Odoo, sino que puede:
+    # eliminar campos, renombrarlos, combinar varios sistemas, validar datos, ocultar información,...
+    for contacto in contactos:
+        # Odoo a veces devuelve False en vez de None si un campo no tiene valor. 
+        # Se normaliza a None para que Pydantic no de error de validación e "internal server error"
+        # (el modelo definido más arriba dice que debe ser str o None).
+        resultado.append(
+            Contacto(
+                id=contacto["id"],
+                nombre=contacto["name"],
+                email=contacto.get("email") or None,
+                telefono=contacto.get("phone") or None,
+                ciudad=contacto.get("city") or None,
+            )
+        )
+
+    return resultado
+
+@app.get("/odoo/contactos/json2", response_model=list[Contacto])
+def obtener_contactos_json2(tipo: Literal["todos", "clientes", "proveedores"] = "todos"):
+    """
+    Implementación equivalente utilizando la nueva API JSON-2 de Odoo 19.
+
+    La respuesta es exactamente la misma que en el endpoint XML-RPC.
+    Lo único que cambia es la tecnología utilizada para comunicarse con Odoo.
+    """
+    dominio = []
+    if tipo == "clientes":
+        dominio = [["customer_rank", ">", 0]]
+    elif tipo == "proveedores":
+        dominio = [["supplier_rank", ">", 0]]
+
+    headers = {
+        "Authorization": f"bearer {ODOO_API_KEY}",
+        "X-Odoo-Database": ODOO_DB,
+        "Content-Type": "application/json",
+        "User-Agent": "SIE FastAPI",
+    }
+
+    payload = {
+        "domain": dominio,
+        "fields": [
+            "id",
+            "name",
+            "email",
+            "phone",
+            "city"
+        ],
+        "order": "name",
+    }
+
+    try:
+        response = httpx.post(
+            f"{ODOO_URL}/json/2/res.partner/search_read",
+            headers=headers,
+            json=payload,
+            timeout=30,
+        )
+        response.raise_for_status()
+
+    except httpx.HTTPStatusError as exc:
+        raise HTTPException(
+            status_code=exc.response.status_code,
+            detail=f"Odoo devolvió un error: {exc.response.text}",
+        )
+
+    except httpx.RequestError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"No se pudo conectar con Odoo: {exc}",
+        )
+
+    contactos = response.json()
+
+    resultado = []
+    for contacto in contactos:
+        resultado.append(
+            Contacto(
+                id=contacto["id"],
+                nombre=contacto["name"],
+                email=contacto.get("email") or None,
+                telefono=contacto.get("phone") or None,
+                ciudad=contacto.get("city") or None,
+            )
+        )
+
+    return resultado
+
+# ---------------------------------------------------------------------------
+# Endpoints de Ollama
 # ---------------------------------------------------------------------------
 @app.get("/ollama/models")
 def ollama_models() -> dict[str, Any]:
-    # Primer endpoint recomendado: ver qué modelos hay descargados en Ollama.
+    # Para ver qué modelos hay descargados en Ollama.
     # Si la lista está vacía, primero habrá que descargar un modelo.
     try:
         response = requests.get(f"{OLLAMA_URL}/api/tags", timeout=30)
@@ -135,64 +338,3 @@ def ollama_generate(req: Prompt) -> dict[str, Any]:
             detail="Ollama respondió, pero no devolvió JSON válido.",
         ) from exc
 
-
-# ---------------------------------------------------------------------------
-# 6) Endpoint de ejemplo de orquestación (sin lógica real todavía)
-# ---------------------------------------------------------------------------
-@app.post("/pedido")
-def pedido(p: Pedido) -> dict[str, Any]:
-    # No crea nada realmente en esta fase inicial: solo explica el flujo.
-    return {
-        "mensaje": "Ejemplo de orquestación (modo demostración)",
-        "pasos": [
-            "1. Crear cliente/pedido en Odoo (más adelante)",
-            "2. Crear oportunidad en SuiteCRM (más adelante)",
-            "3. Iniciar proceso en Bonita (más adelante)",
-            "4. Opcional: automatizar con n8n (más adelante)",
-            "5. Generar resumen con Ollama",
-        ],
-        "datos_recibidos": p.model_dump(),
-    }
-
-
-# ---------------------------------------------------------------------------
-# 7) Endpoints demo por sistema (guía para prácticas futuras)
-# ---------------------------------------------------------------------------
-@app.get("/demo/odoo")
-def demo_odoo() -> dict[str, str]:
-    return {
-        "url": f"{ODOO_URL}/xmlrpc/2/common",
-        "nota": "Fase inicial: solo referencia. Más adelante se añade autenticación y consultas.",
-    }
-
-
-@app.get("/demo/suitecrm")
-def demo_suitecrm() -> dict[str, str]:
-    return {
-        "url": f"{SUITECRM_URL}/api",
-        "nota": "Fase inicial: solo referencia. Más adelante se añaden llamadas REST reales.",
-    }
-
-
-@app.get("/demo/bonita")
-def demo_bonita() -> dict[str, str]:
-    return {
-        "url": f"{BONITA_URL}/bonita/API",
-        "nota": "Fase inicial: solo referencia. Más adelante se crearán procesos/tareas.",
-    }
-
-
-@app.get("/demo/integracion")
-def demo_integracion() -> dict[str, list[str]]:
-    # Resumen narrativo del flujo completo para entender la arquitectura.
-    return {
-        "flujo": [
-            "Cliente realiza pedido",
-            "FastAPI recibe la petición",
-            "Odoo registrará el pedido (fases futuras)",
-            "SuiteCRM registrará oportunidad (fases futuras)",
-            "Bonita gestionará proceso BPM (fases futuras)",
-            "Ollama puede generar un resumen",
-            "n8n puede ampliar automatizaciones",
-        ]
-    }

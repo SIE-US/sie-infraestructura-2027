@@ -4,7 +4,7 @@ services:
   # ERP: Odoo
   # =========================
   odoo:
-    image: odoo:18.0
+    image: odoo:19.0
     ports:
       - "8069:8069"
     environment:
@@ -211,6 +211,8 @@ services:
     ports:
       - "8000:8000"
     working_dir: /app
+    env_file:
+      - .env
     volumes:
       - ./fastapi:/app
     depends_on:
