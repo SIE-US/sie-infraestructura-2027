@@ -30,19 +30,8 @@ RUN sed -ri \
 
 RUN a2enmod rewrite
 
-# Alternativa1: Copiamos el contenido de la carpeta con los ficheros de SuiteCRM al contenedor
-# Problema: La carpeta tiene muchos ficheros y el proceso es lento
-# COPY ./SuiteCRM-8.9.1 /var/www/html
-
-# Alternativa2: Copiamos el ZIP al contenedor, lo descomprimimos y eliminamos el ZIP
-# Problema: El ZIP es demasiado grande para subirlo al repositorio de GitHub (límite=100MB)
-# COPY ./SuiteCRM-8.9.1.zip /tmp/SuiteCRM.zip
-# RUN unzip /tmp/SuiteCRM.zip -d /var/www/html \
-#     && rm /tmp/SuiteCRM.zip
-
-# Alternativa3: Descargamos el ZIP desde la web oficial, lo descomprimimos y eliminamos el ZIP
+# Descargamos el ZIP desde la web oficial, lo descomprimimos y eliminamos el ZIP
 WORKDIR /var/www/html
-#RUN curl -L https://github.com/salesagility/SuiteCRM-Core/releases/download/v8.9.1/SuiteCRM-8.9.1.zip -o suitecrm.zip \
 RUN curl -L https://github.com/SuiteCRM/SuiteCRM-Core/releases/download/v8.10.1/SuiteCRM-8.10.1.zip -o suitecrm.zip \
     && unzip suitecrm.zip \
     && rm suitecrm.zip \
@@ -79,6 +68,18 @@ RUN sed -i "s/\$this->checkMainPage();/\$this->checkMainPage('http:\/\/127.0.0.1
     /var/www/html/core/backend/Install/Service/InstallPreChecks.php \
  && sed -i "s/\$this->checkGraphQlAPI();/\$this->checkGraphQlAPI('http:\/\/127.0.0.1');/" \
     /var/www/html/core/backend/Install/Service/InstallPreChecks.php
+
+# ------------------------------------------------------------------
+# Generar automáticamente las claves necesarias para OAuth2.
+# Estas claves son necesarias para que funcione la API REST V8
+# y la autenticación OAuth2 (FastAPI, n8n, Postman, etc.).
+# ------------------------------------------------------------------
+RUN mkdir -p /var/www/html/public/legacy/Api/V8/OAuth2 \
+    && cd /var/www/html/public/legacy/Api/V8/OAuth2 \
+    && openssl genrsa -out private.key 2048 \
+    && openssl rsa -in private.key -pubout -out public.key \
+    && chmod 600 private.key public.key \
+    && chown www-data:www-data private.key public.key
 
 WORKDIR /var/www/html
 EXPOSE 80

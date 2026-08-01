@@ -11,6 +11,7 @@ Este repositorio contiene la configuración necesaria para levantar el ecosistem
   - [🚀 Inicio Rápido](#-inicio-rápido)
   - [⚙️ Configuración](#️-configuración)
     - [A. SuiteCRM (CRM)](#a-suitecrm-crm)
+      - [Configuración de idiomas en SuiteCRM](#configuración-de-idiomas-en-suitecrm)
     - [B. smtp4dev (Servidor de correo electrónico)](#b-smtp4dev-servidor-de-correo-electrónico)
     - [C. Bonita Runtime (BPM)](#c-bonita-runtime-bpm)
     - [D. Odoo (ERP)](#d-odoo-erp)
@@ -141,6 +142,8 @@ A continuación seguiremos los pasos del asistente de instalación, que nos pedi
 * **SuiteCRM Admin User Password:** [escribe la contraseña que quieras para tu usuario administrador]
 
 Una vez instalado SuiteCRM podremos iniciar sesión con el usuario y contraseña indicados durante la instalación, y nos aparecerá el asistente que recopila información básica de nuestro usuario, aunque también se podrá hacer más adelante, por ejemplo cuando tengamos instalado el idioma español y el Euro como moneda.
+
+#### Configuración de idiomas en SuiteCRM
 
 Para poner SuiteCRM en español una vez completado el asistente, accede con el usuario administrador que has creado y sigue estos pasos:
 1. **Instalación:** Pulsa el icono de usuario en la esquina superior derecha > Menú **Admin** > Sección **Admin Tools** > Opción **Module Loader**, sube el archivo `.zip` que está en la carpeta `suitecrm/languages/` del repositorio, pulsa **Install** y luego **Commit**.
