@@ -15,6 +15,7 @@ Este repositorio contiene la configuración necesaria para levantar el ecosistem
     - [B. smtp4dev (Servidor de correo electrónico)](#b-smtp4dev-servidor-de-correo-electrónico)
     - [C. Bonita Runtime (BPM)](#c-bonita-runtime-bpm)
     - [D. Odoo (ERP)](#d-odoo-erp)
+      - [La base de datos de ejemplo `SIE-test.zip`](#la-base-de-datos-de-ejemplo-sie-testzip)
       - [Módulos Personalizados en Odoo (Addons)](#módulos-personalizados-en-odoo-addons)
     - [E. n8n (iPaaS)](#e-n8n-ipaas)
     - [F. pgAdmin (Gestión de Bases de Datos PostgreSQL)](#f-pgadmin-gestión-de-bases-de-datos-postgresql)
@@ -58,6 +59,7 @@ La mayor parte de los servicios almacenan sus datos en volúmenes Docker. Las ca
     * `workflows/`: Carpeta donde exportar tus flujos exportados manualmente (`.json`) desde n8n.
 * `odoo/`:
     * `addons/`: Carpeta para tus módulos personalizados.
+    * `backup/`: Carpeta para tus copias de seguridad de bases de datos Odoo. Contiene una base de datos de ejemplo llamada `SIE-test.zip` que puedes restaurar para, por ejemplo, probar la API de FastAPI.
     * `config/`: Contiene el fichero `odoo.conf` de configuración.
 * `suitecrm/`:
     * `languages/`: Contiene el pack de idioma español (.zip) listo para instalar tras lanzar el servicio. Puedes descargar y añadir aquí otros idiomas si lo deseas (más abajo se describe cómo hacerlo).
@@ -177,12 +179,24 @@ Tras lanzar el servicio el sistema no tendrá nada (organización, BDM, procesos
 
 Una vez desplegada la organización, con sus usuarios, perfiles y membresías, ya se podrá acceder con los usuarios "normales" para hacer uso de los procesos y aplicaciones que se hayan desplegado tras ser diseñados en la herramienta Bonita Studio.
 
+> Para que los usuarios de la organización puedan iniciar sesión en Bonita Runtime, es necesario que se les asigne un **perfil** (Usuario y/o Administrador). Utiliza el superadministrador para hacerlo y usa roles o grupos para no tener que asignar perfiles a cada usuario de forma individual.
+
 ---
 
 <span id="config-odoo"></span>
 ### D. Odoo (ERP)
 
 Al acceder a Odoo por primera vez podremos crear una primera base de datos para gestionar nuestra organización (podemos crear varias, por ejemplo, una para realizar pruebas y otra para su uso en producción). En este punto tendremos que usar la **"Master password"** definida en el fichero `odoo/config/odoo.conf` que por defecto es `admin_password`. También será necesaria para crear nuevas bases de datos o realizar operaciones sobre las bases de datos que ya tengamos creadas. 
+
+#### La base de datos de ejemplo `SIE-test.zip`
+Incluida en el repositorio en la carpeta `odoo/backup/` puede ser restaurada para facilitar las pruebas de la API personalizada de FastAPI. 
+
+Para ello, accede al menú de gestión de bases de datos (enlace en la parte inferior de la página de *login*) y utiliza la opción correspondiente. Una vez restaurada, estará disponible la base de datos `SIE-test` con:
+  * Idioma Español, país España y datos de prueba activados.
+  * El usuario administrador `admin@sie-test.es` con contraseña `admin`.
+  * El usuario administrador `fastapi@sie-test.es` con contraseña `fastapi` y API Key permanente (sin fecha de caducidad) cuyo valor puede consultarse en `.env`.
+  * Servidor de correo saliente `smtp4dev` configurado.
+  * Aplicaciones 'Ventas', 'CRM' y 'Compra' activados.
 
 #### Módulos Personalizados en Odoo (Addons)
 Si has añadido una carpeta de módulo en `odoo/addons/`, sigue estos pasos para que aparezca:
@@ -280,19 +294,32 @@ Para saber qué modelos hay disponibles consulta la web [https://ollama.com/libr
 
 FastAPI es un framework para Python que nos permitirá crear nuestra propia API REST. A partir del fichero `main.py` podremos definir nuevos endpoints o ampliar los existentes para que puedan ser consumidos por otras aplicaciones o servicios de nuestra infraestructura.
 
-Actualmente la API incluye los siguientes endpoints accesibles desde la URL de base [http://localhost:8000/](http://localhost:8000/):
-
-| Método | Endpoint | Descripción |
-|---------|----------|-------------|
-| GET | `/` | Comprueba que la API está funcionando correctamente. Devuelve el JSON `{"mensaje": "API de integración SIE"}`. |
-| GET | `/health` | Endpoint de monitorización que devuelve el estado de la API. Devuelve el JSON `{"status": "ok"}`. |
-| GET | `/servicios` | Muestra las direcciones configuradas de los principales servicios de la infraestructura. Muestra un JSON con las direcciones configuradas para los distintos servicios de la infraestructura. |
-| GET | `/docs` | Documentación interactiva generada automáticamente mediante Swagger UI. |
-| GET | `/redoc` | Documentación interactiva generada automáticamente mediante ReDoc. |
-| GET | `/openapi.json` | Especificación OpenAPI de la API en formato JSON. |
+La definición de la API desplegada inicialmente se encuentra en el fichero `main.py`. En él se describen los endpoints disponibles, los métodos HTTP que aceptan y la información que devuelven, así como los modelos que se usan para representar esa información. La documentación de la API se genera automáticamente y está disponible en dos formatos interactivos: Swagger UI y ReDoc.
 
 > Cada vez que añadas nuevos endpoints al fichero `main.py`, la documentación se actualizará automáticamente.
 
+Actualmente la API incluye algunos *endpoints* que devuelven información general sobre la API, así como otros que se han creado para que sirvan de ejemplo sobre cómo acceder desde esta API a otros servicios de la infraestructura e interactuar con ellos. Se accede a ellos desde la URL de base [http://localhost:8000/](http://localhost:8000/), aunque en algunos casos será necesario realizar alguna acción previa para que funcionen, como se indica a continuación.
+
+| Método | Endpoint | Descripción | Requisitos |
+|---------|----------|-------------|------------|
+| GET | `/` | Comprueba que la API está funcionando correctamente. Devuelve el JSON `{"mensaje": "API de integración SIE"}`. | - |
+| GET | `/health` | Endpoint de monitorización que devuelve el estado de la API. Devuelve el JSON `{"status": "ok"}`. | - |
+| GET | `/servicios` | Muestra las direcciones configuradas de los principales servicios de la infraestructura. Muestra un JSON con las direcciones configuradas para los distintos servicios de la infraestructura. | - |
+| GET | `/docs` | Documentación interactiva generada automáticamente mediante Swagger UI. | - |
+| GET | `/redoc` | Documentación interactiva generada automáticamente mediante ReDoc. | - |
+| GET | `/openapi.json` | Especificación OpenAPI de la API en formato JSON. | - |
+| GET | `/odoo/contactos` | Devuelve los contactos registrados en la base de datos de Odoo mediante XML-RPC. Acepta como filtro `?tipo=todos\|clientes\|proveedores` (por defecto "todos"). | Restaurar en Odoo la base de datos de prueba 'SIE-test' incluida en el repositorio en el directorio 'odoo/backup'. Para usar otra base de datos tendremos que modificar las variables de entorno utilizadas (fichero `.env`). |
+| GET | `/odoo/contactos/json2` | Devuelve los contactos registrados en la base de datos de Odoo usando el método JSON2 introducido en la versión Odoo 19. Acepta como filtro `?tipo=todos\|clientes\|proveedores` (por defecto "todos"). | Restaurar en Odoo la base de datos de prueba 'SIE-test' incluida en el repositorio en el directorio 'odoo/backup'. Para usar otra base de datos tendremos que modificar las variables de entorno utilizadas (fichero `.env`). |
+| GET | `/suitecrm/contactos` | Devuelve los contactos registrados en la base de datos de SuiteCRM. | Completar la instalación de SuiteCRM y crear clientes o usar la opción de cargar datos de *demo*. |
+| GET | `/bonita/version` | Devuelve la versión de Bonita Runtime y el usuario autenticado. | - |
+| GET | `/bonita/procesos` | Devuelve la lista de procesos desplegados en Bonita Runtime. | Se debe completar el despliegue de nuestro sistema BPM diseñado previamente con Bonita Studio (Organización, BDM y procesos). Podemos modificar los datos utilizados para conectar con Bonita Runtime editando el fichero `.env`. |
+| GET | `/ollama/models` | Devuelve los modelos que hay descargados en Ollama. | Para que no devuelva una lista vacía, primero habrá que descargar un modelo. |
+| POST | `/ollama/generate` | Permite enviar un *prompt* y recibir el texto generado por el modelo. Puedes probarlo fácilmente mediante Swagger (http://localhost:8000/docs#/Ollama/ollama_generate_ollama_generate_post). Pulsa el botón `Try it out`, escribe el *prompt* que quieras y pulsa `Execute`. | Por defecto se utiliza el modelo `llama3.2:3b` que deberá descargarse previamente como se indica en la sección de Ollama. Para usar otro modelo se puede modificar el fichero `.env`. |
+| GET | `/contactos` | Devuelve los contactos de Odoo y SuiteCRM en un único JSON. Se trata de un ejemplo de integración en el que se utilizan dos servicios independientes para satisfacer la petición del usuario. | Se deben cumplir los requisitos de los endpoints `/odoo/contactos` y `/suitecrm/contactos`. |
+
+> Para forzar que la API vuelva a leer los cambios realizados en el fichero `main.py`, reinicia el contenedor con `docker compose restart fastapi`. 
+
+> Si has modificado el fichero `.env` para cambiar la configuración de la API, reinicia el contenedor con `docker compose up -d --force-recreate fastapi` para que los cambios surtan efecto.
 
 <span id="network"></span>
 ## 🌐 Red interna Docker

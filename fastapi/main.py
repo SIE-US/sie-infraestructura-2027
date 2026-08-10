@@ -40,7 +40,7 @@ SUITECRM_URL = os.getenv("SUITECRM_URL", "http://suitecrm")
 BONITA_URL = os.getenv("BONITA_URL", "http://bonita:8080")
 N8N_URL = os.getenv("N8N_URL", "http://n8n:5678")
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://ollama:11434")
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.2")
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.2:3b")
 ODOO_DB = os.getenv("ODOO_DB", "SIE-test")
 ODOO_API_USER = os.getenv("ODOO_API_USER", "fastapi@sie-test.es")
 ODOO_API_PASSWORD = os.getenv("ODOO_API_PASSWORD", "fastapi")
@@ -227,18 +227,27 @@ def autenticar_bonita() -> httpx.Client:
 # ---------------------------------------------------------------------------
 @app.get("/", tags=["Sistema"])
 def root() -> dict[str, str]:
+    """
+    Endpoint raíz de la API.
+    Devuelve un mensaje simple.
+    """
     return {"mensaje": "API de integración SIE"}
 
 
 @app.get("/health", tags=["Sistema"])
 def health() -> dict[str, str]:
-    # Endpoint mínimo de vida de la API.
+    """
+    Endpoint de salud de la API.
+    Permite comprobar que la API está viva.
+    """
     return {"status": "ok"}
 
 
 @app.get("/servicios", tags=["Sistema"])
 def servicios() -> dict[str, str]:
-    # Muestra direcciones de los servicios, aunque aún no estén configurados.
+    """
+    Muestra direcciones de los servicios que ofrece la infraestructura.
+    """
     return {
         "odoo": ODOO_URL,
         "suitecrm": SUITECRM_URL,
@@ -408,6 +417,7 @@ def obtener_contactos_odoo_json2(tipo: Literal["todos", "clientes", "proveedores
 def obtener_contactos_suitecrm():
     """
     Recupera los contactos de SuiteCRM.
+
     Utiliza el mismo modelo que el endpoint /odoo/contactos.
     """
     token = obtener_token_suitecrm()
@@ -462,6 +472,9 @@ def obtener_contactos_suitecrm():
 # ---------------------------------------------------------------------------
 @app.get("/bonita/version", tags=["Bonita"])
 def bonita_version():
+    """
+    Devuelve la versión de Bonita Runtime y el usuario autenticado.
+    """
     try:
         cliente = autenticar_bonita()
 
@@ -538,10 +551,10 @@ def obtener_procesos_bonita():
 # ---------------------------------------------------------------------------
 @app.get("/ollama/models", tags=["Ollama"])
 def ollama_models() -> dict[str, Any]:
-    '''
+    """
     Para ver qué modelos hay descargados en Ollama.
     Si la lista está vacía, primero habrá que descargar un modelo.
-    '''
+    """
     try:
         response = requests.get(f"{OLLAMA_URL}/api/tags", timeout=30)
         response.raise_for_status()
@@ -562,10 +575,10 @@ def ollama_models() -> dict[str, Any]:
 
 @app.post("/ollama/generate", tags=["Ollama"])
 def ollama_generate(req: Prompt) -> dict[str, Any]:
-    '''
+    """
     Este endpoint genera texto, pero solo funcionará cuando exista al menos
     un modelo descargado en Ollama.
-    '''
+    """
     try:
         response = requests.post(
             f"{OLLAMA_URL}/api/generate",
